@@ -1,8 +1,6 @@
 package rbac
 
 import (
-	"fmt"
-
 	v32 "github.com/rancher/rancher/pkg/apis/management.cattle.io/v3"
 	v3 "github.com/rancher/rancher/pkg/generated/norman/management.cattle.io/v3"
 	v1 "github.com/rancher/rancher/pkg/generated/norman/rbac.authorization.k8s.io/v1"
@@ -26,10 +24,11 @@ func newClusterHandler(workload *config.UserContext) v3.ClusterHandlerFunc { //*
 		clusterName: workload.ClusterName,
 		grbIndexer:  informer.GetIndexer(),
 		// Management level resources
-		clusters: workload.Management.Management.Clusters(""),
+		grbController: workload.Management.Management.GlobalRoleBindings("").Controller(),
+		clusters:      workload.Management.Management.Clusters(""),
 		// User context resources
-		userCRB:       workload.RBAC.ClusterRoleBindings(""),
-		userCRBLister: workload.RBAC.ClusterRoleBindings("").Controller().Lister(),
+		userGRB:       workload.RBAC.ClusterRoleBindings(""),
+		userGRBLister: workload.RBAC.ClusterRoleBindings("").Controller().Lister(),
 	}
 	return ch.sync
 }
@@ -38,10 +37,11 @@ type clusterHandler struct {
 	clusterName string
 	grbIndexer  cache.Indexer
 	// Management level resources
-	clusters v3.ClusterInterface
+	grbController v3.GlobalRoleBindingController
+	clusters      v3.ClusterInterface
 	// User context resources
-	userCRB       v1.ClusterRoleBindingInterface
-	userCRBLister v1.ClusterRoleBindingLister
+	userGRB       v1.ClusterRoleBindingInterface
+	userGRBLister v1.ClusterRoleBindingLister
 }
 
 func (h *clusterHandler) sync(key string, obj *v3.Cluster) (runtime.Object, error) {
@@ -65,43 +65,47 @@ func (h *clusterHandler) sync(key string, obj *v3.Cluster) (runtime.Object, erro
 	return obj, nil
 }
 
-// doSync syncs CRBs for all GlobalAdmins to the clustere role 'cluster-admin'.
 func (h *clusterHandler) doSync(cluster *v3.Cluster) error {
 	_, err := v32.ClusterConditionGlobalAdminsSynced.DoUntilTrue(cluster, func() (runtime.Object, error) {
-		grbs, err := h.grbIndexer.ByIndex(grbByRoleIndex, rbac.GlobalAdmin)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list GlobalRoleBindings for global-admin: %w", err)
-		}
-
-		for _, x := range grbs {
-			grb, ok := x.(*v32.GlobalRoleBinding)
-			if !ok || grb == nil {
+		// Sync both admin types
+		for _, roleName := range []string{rbac.GlobalAdmin, rbac.GlobalRestrictedAdmin} {
+			// Do not sync restricted-admin to the local cluster as 'cluster-admin'
+			if cluster.Name == "local" && roleName == rbac.GlobalRestrictedAdmin {
 				continue
 			}
-			bindingName := rbac.GrbCRBName(grb)
-			_, err := h.userCRBLister.Get("", bindingName)
-			if err == nil {
-				// binding exists, nothing to do
-				continue
-			}
-			if !k8serrors.IsNotFound(err) {
-				return nil, fmt.Errorf("failed to get GlobalRoleBinding for '%s': %w", bindingName, err)
+			grbs, err := h.grbIndexer.ByIndex(grbByRoleIndex, roleName)
+			if err != nil {
+				return nil, err
 			}
 
-			_, err = h.userCRB.Create(&k8srbac.ClusterRoleBinding{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: bindingName,
-				},
-				Subjects: []k8srbac.Subject{
-					rbac.GetGRBSubject(grb),
-				},
-				RoleRef: k8srbac.RoleRef{
-					Name: "cluster-admin",
-					Kind: "ClusterRole",
-				},
-			})
-			if err != nil && !k8serrors.IsAlreadyExists(err) {
-				return nil, fmt.Errorf("failed to create new ClusterRoleBinding for GlobalRoleBinding '%s': %w", grb.Name, err)
+			for _, x := range grbs {
+				grb, _ := x.(*v3.GlobalRoleBinding)
+				bindingName := rbac.GrbCRBName(grb)
+				b, err := h.userGRBLister.Get("", bindingName)
+				if err != nil && !k8serrors.IsNotFound(err) {
+					return nil, err
+				}
+
+				if b != nil {
+					// binding exists, nothing to do
+					continue
+				}
+
+				_, err = h.userGRB.Create(&k8srbac.ClusterRoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: bindingName,
+					},
+					Subjects: []k8srbac.Subject{
+						rbac.GetGRBSubject(grb),
+					},
+					RoleRef: k8srbac.RoleRef{
+						Name: "cluster-admin",
+						Kind: "ClusterRole",
+					},
+				})
+				if err != nil && !k8serrors.IsAlreadyExists(err) {
+					return nil, err
+				}
 			}
 		}
 		return nil, nil
@@ -110,7 +114,7 @@ func (h *clusterHandler) doSync(cluster *v3.Cluster) error {
 }
 
 func grbByRole(obj interface{}) ([]string, error) {
-	grb, ok := obj.(*v32.GlobalRoleBinding)
+	grb, ok := obj.(*v3.GlobalRoleBinding)
 	if !ok {
 		return []string{}, nil
 	}

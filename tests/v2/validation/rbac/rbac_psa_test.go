@@ -66,7 +66,7 @@ func (rb *PSATestSuite) ValidatePSA(role string) {
 
 	rb.T().Logf("Validate updating the PSA labels as %v", role)
 
-	updateNS, err := getAndConvertNamespace(rb.adminNamespace, rb.steveAdminClient)
+	updateNS, err := getAndConverNamespace(rb.adminNamespace, rb.steveAdminClient)
 	require.NoError(rb.T(), err)
 	updateNS.Labels = labels
 
@@ -93,7 +93,7 @@ func (rb *PSATestSuite) ValidatePSA(role string) {
 
 	deleteLabels(labels)
 
-	deleteLabelsNS, err := getAndConvertNamespace(rb.adminNamespace, rb.steveAdminClient)
+	deleteLabelsNS, err := getAndConverNamespace(rb.adminNamespace, rb.steveAdminClient)
 	require.NoError(rb.T(), err)
 	deleteLabelsNS.Labels = labels
 
@@ -169,7 +169,7 @@ func (rb *PSATestSuite) ValidateAdditionalPSA(role string) {
 		psaEnforce: pssRestrictedPolicy,
 		psaAudit:   pssRestrictedPolicy,
 	}
-	updateNS, err := getAndConvertNamespace(createNamespace, rb.steveAdminClient)
+	updateNS, err := getAndConverNamespace(createNamespace, rb.steveAdminClient)
 	require.NoError(rb.T(), err)
 	updateNS.Labels = labels
 
@@ -196,7 +196,7 @@ func (rb *PSATestSuite) ValidateAdditionalPSA(role string) {
 		rgx := regexp.MustCompile(`\[(.*?)\]`)
 		errorMsg := rgx.FindStringSubmatch(errStatus)
 		assert.Equal(rb.T(), "403 Forbidden", errorMsg[1])
-		updateNS, err := getAndConvertNamespace(createNamespace, rb.steveAdminClient)
+		updateNS, err := getAndConverNamespace(createNamespace, rb.steveAdminClient)
 		require.NoError(rb.T(), err)
 		updateNS.Labels = labels
 		_, err = rb.steveAdminClient.SteveType(namespaces.NamespaceSteveType).Update(createNamespace, updateNS)
@@ -206,7 +206,7 @@ func (rb *PSATestSuite) ValidateAdditionalPSA(role string) {
 	rb.T().Logf("Validate deletion of PSA labels in namespace in a cluster member created project as %v", role)
 
 	deleteLabels(labels)
-	deleteLabelsNS, err := getAndConvertNamespace(createNamespace, rb.steveAdminClient)
+	deleteLabelsNS, err := getAndConverNamespace(createNamespace, rb.steveAdminClient)
 	require.NoError(rb.T(), err)
 	deleteLabelsNS.Labels = labels
 

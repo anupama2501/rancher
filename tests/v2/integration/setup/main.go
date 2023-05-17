@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"strings"
 
 	"github.com/creasty/defaults"
 	v3 "github.com/rancher/rancher/pkg/apis/management.cattle.io/v3"
@@ -18,7 +17,6 @@ import (
 	namegen "github.com/rancher/rancher/tests/framework/pkg/namegenerator"
 	"github.com/rancher/rancher/tests/framework/pkg/session"
 	"github.com/sirupsen/logrus"
-	"k8s.io/client-go/util/retry"
 )
 
 var (
@@ -39,7 +37,6 @@ func main() {
 		Password: "admin",
 	}
 
-	logrus.Infof("Generating test config...")
 	ipAddress := getOutboundIP()
 	hostURL := fmt.Sprintf("%s:8443", ipAddress.String())
 	token, err := token.GenerateUserToken(user, hostURL)
@@ -61,7 +58,6 @@ func main() {
 
 	config.WriteConfig(rancherClient.ConfigurationFileKey, rancherConfig)
 
-	logrus.Infof("Setting up K3D downstream cluster...")
 	testSession := session.NewSession()
 
 	client, err := rancherClient.NewClient("", testSession)
@@ -87,17 +83,8 @@ func main() {
 	if err != nil {
 		logrus.Fatalf("error updating agent-image setting: %v", err)
 	}
-	logrus.Infof("Updated agent-image setting to %s", agentSetting.Value)
 
-	// docker is sometimes unable to take the xtables lock to set up networking.
-	// See this issue https://github.com/weaveworks/scope/issues/2308 which describes similar symptoms,
-	// and points to https://github.com/moby/moby/issues/10218 (still open as of April 21, 2023) as a possible root cause.
-	err = retry.OnError(retry.DefaultBackoff, func(err error) bool {
-		return strings.Contains(err.Error(), "iptables: Resource temporarily unavailable")
-	}, func() error {
-		_, err = k3d.CreateAndImportK3DCluster(client, clusterName, masterAgentImage, "", 1, 0, true)
-		return err
-	})
+	_, err = k3d.CreateAndImportK3DCluster(client, clusterName, masterAgentImage, "", 1, 0, true)
 	if err != nil {
 		logrus.Fatalf("error creating and importing a k3d cluster: %v", err)
 	}

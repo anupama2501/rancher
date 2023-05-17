@@ -24,7 +24,7 @@ import (
 	"github.com/rancher/wrangler/pkg/merr"
 	"github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/release"
+	release2 "helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -48,7 +48,6 @@ type desiredKey struct {
 	namespace            string
 	name                 string
 	minVersion           string
-	exactVersion         string
 	installImageOverride string
 }
 
@@ -171,7 +170,7 @@ func (m *Manager) installCharts(charts map[desiredKey]map[string]interface{}, fo
 	var errs []error
 	for key, values := range charts {
 		for {
-			if err := m.install(key.namespace, key.name, key.minVersion, key.exactVersion, values, forceAdopt, key.installImageOverride); err == repo.ErrNoChartName || apierrors.IsNotFound(err) {
+			if err := m.install(key.namespace, key.name, key.minVersion, values, forceAdopt, key.installImageOverride); err == repo.ErrNoChartName || apierrors.IsNotFound(err) {
 				logrus.Errorf("Failed to find system chart %s will try again in 5 seconds: %v", key.name, err)
 				time.Sleep(5 * time.Second)
 				continue
@@ -213,14 +212,13 @@ func (m *Manager) Uninstall(namespace, name string) error {
 	return m.waitPodDone(op)
 }
 
-func (m *Manager) Ensure(namespace, name, minVersion, exactVersion string, values map[string]interface{}, forceAdopt bool, installImageOverride string) error {
+func (m *Manager) Ensure(namespace, name, minVersion string, values map[string]interface{}, forceAdopt bool, installImageOverride string) error {
 	go func() {
 		m.sync <- desired{
 			key: desiredKey{
 				namespace:            namespace,
 				name:                 name,
 				minVersion:           minVersion,
-				exactVersion:         exactVersion,
 				installImageOverride: installImageOverride,
 			},
 			values:     values,
@@ -230,32 +228,27 @@ func (m *Manager) Ensure(namespace, name, minVersion, exactVersion string, value
 	return nil
 }
 
-func (m *Manager) Remove(namespace, name string) {
-	for k := range m.desiredCharts {
-		if k.namespace == namespace && k.name == name {
-			delete(m.desiredCharts, k)
-		}
-	}
+func (m *Manager) Remove(namespace, name, minVersion string) {
+	delete(m.desiredCharts, desiredKey{
+		namespace:  namespace,
+		name:       name,
+		minVersion: minVersion,
+	})
 }
 
-func (m *Manager) install(namespace, name, minVersion, exactVersion string, values map[string]interface{}, forceAdopt bool, installImageOverride string) error {
+func (m *Manager) install(namespace, name, minVersion string, values map[string]interface{}, forceAdopt bool, installImageOverride string) error {
 	index, err := m.content.Index("", "rancher-charts", true)
 	if err != nil {
 		return err
 	}
 
-	v := ">=0-a" // latest - this is special syntax to match everything including pre-releases build
-	var isExact bool
-	if exactVersion != "" {
-		v = exactVersion
-		isExact = true
-	}
-	chart, err := index.Get(name, v)
+	// get latest, the >=0-a is a weird syntax to match everything including prereleases build
+	chart, err := index.Get(name, ">=0-a")
 	if err != nil {
 		return err
 	}
 
-	installed, desiredVersion, desiredValue, err := m.isInstalled(namespace, name, minVersion, chart.Version, isExact, values)
+	installed, desiredVersion, desiredValue, err := m.isInstalled(namespace, name, chart.Version, minVersion, values)
 	if err != nil {
 		return err
 	} else if installed {
@@ -359,7 +352,8 @@ func podDone(chart string, newPod *corev1.Pod) (bool, error) {
 	return false, nil
 }
 
-func (m *Manager) isInstalled(namespace, name, minVersion, desiredVersion string, isExact bool, desiredValue map[string]interface{}) (bool, string, map[string]interface{}, error) {
+// isInstalled returns whether the release is installed, if false, it will return the version and values.yaml it should install/upgrade
+func (m *Manager) isInstalled(namespace, name, version, minVersion string, desiredValue map[string]interface{}) (bool, string, map[string]interface{}, error) {
 	helmcfg := &action.Configuration{}
 	if err := helmcfg.Init(m.restClientGetter, namespace, "", logrus.Infof); err != nil {
 		return false, "", nil, err
@@ -373,27 +367,24 @@ func (m *Manager) isInstalled(namespace, name, minVersion, desiredVersion string
 		return false, "", nil, err
 	}
 
-	return desiredVersionAndValues(releases, minVersion, desiredVersion, isExact, desiredValue)
-}
+	desired, err := semver.NewVersion(version)
+	if err != nil {
+		return false, "", nil, err
+	}
 
-// desiredVersionAndValues returns whether the release is installed. If not, it returns the desired version and Helm values.
-// Callers must provide the desired version. If isExact is true, then the resulting value is the desiredVersion, which
-// may result in a forced upgrade or downgrade. Otherwise, the desiredVersion signifies the latest version, which may
-// or may not be installed, depending on the value of the min version.
-func desiredVersionAndValues(releases []*release.Release, minVersion, desiredVersion string, isExact bool, desiredValues map[string]any) (bool, string, map[string]interface{}, error) {
-	for _, r := range releases {
-		if r.Info.Status != release.StatusDeployed {
+	for _, release := range releases {
+		if release.Info.Status != release2.StatusDeployed {
 			continue
 		}
-		if desiredValues == nil {
-			desiredValues = map[string]interface{}{}
+		if desiredValue == nil {
+			desiredValue = map[string]interface{}{}
 		}
-		releaseConfig := r.Config
+		releaseConfig := release.Config
 		if releaseConfig == nil {
 			releaseConfig = map[string]interface{}{}
 		}
 
-		desiredValuesJSON, err := json.Marshal(desiredValues)
+		desiredValuesJSON, err := json.Marshal(desiredValue)
 		if err != nil {
 			return false, "", nil, err
 		}
@@ -408,25 +399,14 @@ func desiredVersionAndValues(releases []*release.Release, minVersion, desiredVer
 			return false, "", nil, err
 		}
 
-		desiredValues = map[string]interface{}{}
-		if err := json.Unmarshal(patchedJSON, &desiredValues); err != nil {
+		desiredValue = map[string]interface{}{}
+		if err := json.Unmarshal(patchedJSON, &desiredValue); err != nil {
 			return false, "", nil, err
 		}
 
-		current, err := semver.NewVersion(r.Chart.Metadata.Version)
+		ver, err := semver.NewVersion(release.Chart.Metadata.Version)
 		if err != nil {
 			return false, "", nil, err
-		}
-
-		desired, err := semver.NewVersion(desiredVersion)
-		if err != nil {
-			return false, "", nil, err
-		}
-
-		if isExact {
-			if !current.Equal(desired) {
-				return false, desired.String(), desiredValues, nil
-			}
 		}
 
 		if minVersion != "" {
@@ -435,24 +415,25 @@ func desiredVersionAndValues(releases []*release.Release, minVersion, desiredVer
 				return false, "", nil, err
 			}
 			if desired.LessThan(min) {
-				logrus.Errorf("available chart version (%s) for %s is less than the min version (%s) ", desired, r.Chart.Name(), min)
+				logrus.Errorf("available chart version (%s) for %s is less than the min version (%s) ", desired, name, min)
 				return false, "", nil, repo.ErrNoChartName
 			}
-			if min.LessThan(current) || min.Equal(current) {
+			if min.LessThan(ver) || min.Equal(ver) {
 				// If the current deployed version is greater or equal than the min version but configuration has changed, return false and upgrade with the current version
 				if !bytes.Equal(patchedJSON, actualValueJSON) {
-					return false, r.Chart.Metadata.Version, desiredValues, nil
+					return false, release.Chart.Metadata.Version, desiredValue, nil
 				}
-				logrus.Debugf("Skipping installing/upgrading desired version %s for release %s, since current version %s is greater or equal to minimal required version %s", desired.String(), r.Name, current.String(), minVersion)
+				logrus.Debugf("Skipping installing/upgrading desired version %v for release %v, current version %v is greater or equal to minimal required version %v", desired.String(), name, ver.String(), minVersion)
 				return true, "", nil, nil
 			}
 		}
 
-		if (desired.LessThan(current) || desired.Equal(current)) && bytes.Equal(patchedJSON, actualValueJSON) {
+		if (desired.LessThan(ver) || desired.Equal(ver)) && bytes.Equal(patchedJSON, actualValueJSON) {
 			return true, "", nil, nil
 		}
 	}
-	return false, desiredVersion, desiredValues, nil
+
+	return false, version, desiredValue, nil
 }
 
 func (m *Manager) hasStatus(namespace, name string, stateMask action.ListStates) (bool, error) {

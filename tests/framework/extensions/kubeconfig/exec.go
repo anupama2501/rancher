@@ -92,16 +92,14 @@ func CopyFileFromPod(restConfig *restclient.Config, clientConfig clientcmd.Clien
 	ioStreams, _, _, _ := genericclioptions.NewTestIOStreams()
 	copyOptions := cp.NewCopyOptions(ioStreams)
 
-	newClientGett, err := NewRestGetter(restConfig, clientConfig)
-	if err != nil {
-		return err
-	}
+	newClientGett := NewRestGetter(restConfig, clientConfig)
 
 	newFactory := cmdutil.NewFactory(newClientGett)
 	newCobra := &cobra.Command{}
 
 	source := fmt.Sprintf("%s/%s:%s", namespace, podName, filename)
-	if err := copyOptions.Complete(newFactory, newCobra, []string{source, dest}); err != nil {
+	err := copyOptions.Complete(newFactory, newCobra, []string{source, dest})
+	if err != nil {
 		return err
 	}
 

@@ -42,7 +42,6 @@ type Capabilities struct {
 	ClientID         string `json:"clientId"`
 	ClientSecret     string `json:"clientSecret"`
 	ResourceLocation string `json:"region"`
-	Environment      string `json:"environment"`
 	ClusterID        string `json:"clusterId"`
 }
 
@@ -178,25 +177,20 @@ func (h *handler) checkCredentials(req *http.Request) (int, error) {
 	if cred.ClientSecret == "" {
 		return http.StatusBadRequest, fmt.Errorf("must provide clientSecret")
 	}
-
-	clientEnvironment := ""
-	if cred.Environment != "" {
-		clientEnvironment = cred.Environment
-	}
-	azureEnvironment := GetEnvironment(clientEnvironment)
-
-	cred.BaseURL = azureEnvironment.ResourceManagerEndpoint
-	cred.AuthBaseURL = azureEnvironment.ActiveDirectoryEndpoint
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if cred.TenantID == "" {
-		cred.TenantID, err = azureutil.FindTenantID(ctx, azureEnvironment, cred.SubscriptionID)
+		cred.TenantID, err = azureutil.FindTenantID(ctx, azure.PublicCloud, cred.SubscriptionID)
 		if err != nil {
-			return http.StatusBadRequest, fmt.Errorf("could not find tenant ID for Azure environment %s: %w", azureEnvironment.Name, err)
+			return http.StatusBadRequest, fmt.Errorf("could not find tenant ID: %w", err)
 		}
 	}
-
+	if cred.BaseURL == "" {
+		cred.BaseURL = azure.PublicCloud.ResourceManagerEndpoint
+	}
+	if cred.AuthBaseURL == "" {
+		cred.AuthBaseURL = azure.PublicCloud.ActiveDirectoryEndpoint
+	}
 	client, err := NewSubscriptionServiceClient(cred)
 	if err != nil {
 		logrus.Errorf("[AKS] failed to create new subscription client: %v", err)
@@ -248,13 +242,6 @@ func (h *handler) getCloudCredential(req *http.Request, cap *Capabilities, credI
 	cap.SubscriptionID = string(cc.Data["azurecredentialConfig-subscriptionId"])
 	cap.ClientID = string(cc.Data["azurecredentialConfig-clientId"])
 	cap.ClientSecret = string(cc.Data["azurecredentialConfig-clientSecret"])
-	cap.Environment = string(cc.Data["azurecredentialConfig-environment"])
-
-	clientEnvironment := ""
-	if cap.Environment != "" {
-		clientEnvironment = cap.Environment
-	}
-	azureEnvironment := GetEnvironment(clientEnvironment)
 
 	if cap.TenantID == "" {
 		cap.TenantID, err = aks.GetCachedTenantID(h.secretClient, cap.SubscriptionID, cc)
@@ -265,11 +252,11 @@ func (h *handler) getCloudCredential(req *http.Request, cap *Capabilities, credI
 
 	cap.BaseURL = req.URL.Query().Get("baseUrl")
 	if cap.BaseURL == "" {
-		cap.BaseURL = azureEnvironment.ResourceManagerEndpoint
+		cap.BaseURL = azure.PublicCloud.ResourceManagerEndpoint
 	}
 	cap.AuthBaseURL = req.URL.Query().Get("authBaseUrl")
 	if cap.AuthBaseURL == "" {
-		cap.AuthBaseURL = azureEnvironment.ActiveDirectoryEndpoint
+		cap.AuthBaseURL = azure.PublicCloud.ActiveDirectoryEndpoint
 	}
 
 	cap.ResourceLocation = req.URL.Query().Get("region")
@@ -336,18 +323,11 @@ func (h *handler) getCredentialsFromBody(req *http.Request, cap *Capabilities) (
 	if cap.ClientSecret == "" {
 		return http.StatusBadRequest, fmt.Errorf("invalid clientSecret")
 	}
-
-	clientEnvironment := ""
-	if cap.Environment != "" {
-		clientEnvironment = cap.Environment
-	}
-	azureEnvironment := GetEnvironment(clientEnvironment)
-
 	if cap.BaseURL == "" {
-		cap.BaseURL = azureEnvironment.ResourceManagerEndpoint
+		cap.BaseURL = azure.PublicCloud.ResourceManagerEndpoint
 	}
 	if cap.AuthBaseURL == "" {
-		cap.AuthBaseURL = azureEnvironment.ActiveDirectoryEndpoint
+		cap.AuthBaseURL = azure.PublicCloud.ActiveDirectoryEndpoint
 	}
 
 	return http.StatusOK, nil
@@ -373,17 +353,4 @@ func handleErr(writer http.ResponseWriter, errorCode int, originalErr error) {
 		return
 	}
 	writer.Write(payloadJSON)
-}
-
-func GetEnvironment(env string) azure.Environment {
-	switch env {
-	case "AzureGermanCloud":
-		return azure.GermanCloud
-	case "AzureChinaCloud":
-		return azure.ChinaCloud
-	case "AzureUSGovernmentCloud":
-		return azure.USGovernmentCloud
-	default:
-		return azure.PublicCloud
-	}
 }

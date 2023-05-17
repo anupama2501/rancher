@@ -69,7 +69,7 @@ def test_aks_v2_hosted_cluster_create_basic():
         "enableClusterMonitoring": False
     }
     cluster = create_and_validate_aks_cluster(cluster_config)
-    hosted_cluster_cleanup(client, cluster, cluster_name)
+    hosted_cluster_cleanup(client, cluster)
 
 
 def get_aks_config(cluster_name):
@@ -122,3 +122,14 @@ def create_and_validate_aks_cluster(cluster_config, imported=False):
                                skipIngresscheck=True,
                                timeout=DEFAULT_TIMEOUT_AKS)
     return client, cluster
+
+
+@pytest.fixture(scope='module', autouse="False")
+def create_project_client(request):
+    def fin():
+        client = get_user_client()
+        for name, cluster in cluster_details.items():
+            if len(client.list_cluster(name=name).data) > 0:
+                client.delete(cluster)
+
+    request.addfinalizer(fin)

@@ -52,10 +52,6 @@ users:
 `
 )
 
-var (
-	importTimeout = int64(60 * 20)
-)
-
 // ImportCluster creates a job using the given rest config that applies the import yaml from the given management cluster.
 func ImportCluster(client *rancher.Client, cluster *apisV1.Cluster, rest *rest.Config) error {
 	// create a sub session to clean up after we apply the manifest
@@ -187,10 +183,7 @@ func ImportCluster(client *rancher.Client, cluster *apisV1.Cluster, rest *rest.C
 		return err
 	}
 
-	jobWatch, err := downClient.Resource(batchv1.SchemeGroupVersion.WithResource("jobs")).Namespace("kube-system").Watch(context.TODO(), metav1.ListOptions{
-		FieldSelector:  fields.OneTermEqualSelector("metadata.name", job.Name).String(),
-		TimeoutSeconds: &importTimeout,
-	})
+	jobWatch, err := downClient.Resource(batchv1.SchemeGroupVersion.WithResource("jobs")).Namespace("kube-system").Watch(context.TODO(), metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector("metadata.name", job.Name).String()})
 	if err != nil {
 		return err
 	}
