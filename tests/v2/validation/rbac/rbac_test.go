@@ -16,6 +16,7 @@ import (
 	"github.com/rancher/rancher/tests/framework/extensions/users"
 	namegen "github.com/rancher/rancher/tests/framework/pkg/namegenerator"
 	"github.com/rancher/rancher/tests/framework/pkg/session"
+	"github.com/rancher/rancher/tests/v2/validation/provisioning"
 	"github.com/rancher/rancher/tests/v2/validation/provisioning/rke1"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -611,7 +612,7 @@ func (rb *RBTestSuite) TestRBACAdditional() {
 			rb.Run("Additional testcase6 - Validating if "+restrictedAdmin+" can create an RKE1 cluster", func() {
 				clusterConfig := getClusterConfig()
 				rke1.TestProvisioningRKE1CustomCluster(rb.T(), rb.standardUserClient, clusterConfig.externalNodeProvider,
-					clusterConfig.nodeRoles, "", clusterConfig.kubernetesVersion, clusterConfig.cni)
+					clusterConfig.nodeRoles, "", clusterConfig.kubernetesVersion, clusterConfig.cni, provisioning.AdvancedOptions{})
 			})
 
 			rb.Run("Additional testcase7 - Validating if "+restrictedAdmin+" can list global settings", func() {
