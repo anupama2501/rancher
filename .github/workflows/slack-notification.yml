@@ -1,0 +1,23 @@
+name: Slack Notification on Label Change for Subscribed User
+
+on:
+  issues:
+    types:
+      - labeled
+      - unlabeled
+  issue_comment:
+    types:
+      - created
+
+jobs:
+  notify-slack:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check if label added or comment mentions user
+        if: (github.event.action == 'labeled' && contains(github.event.issue.labels.*.name, 'status/to-test') && contains(github.event.issue.labels.*.name, 'team/area1')) 
+        run: |
+          echo "Label added: ${{ github.event.label.name }}"
+          echo "Issue: ${{ github.event.issue.html_url }}"
+          echo "Comment created by: ${{ github.actor }}"
+        continue-on-error: true
