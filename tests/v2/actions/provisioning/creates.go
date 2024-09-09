@@ -17,6 +17,7 @@ import (
 	rkev1 "github.com/rancher/rancher/pkg/apis/rke.cattle.io/v1"
 
 	"github.com/rancher/rancher/tests/v2/actions/clusters"
+	"github.com/rancher/rancher/tests/v2/actions/clustertemplates"
 	k3sHardening "github.com/rancher/rancher/tests/v2/actions/hardening/k3s"
 	rke1Hardening "github.com/rancher/rancher/tests/v2/actions/hardening/rke1"
 	rke2Hardening "github.com/rancher/rancher/tests/v2/actions/hardening/rke2"
@@ -1057,4 +1058,30 @@ func DeleteRKE1CustomClusterNodes(client *rancher.Client, cluster *management.Cl
 	}
 
 	return nil
+}
+
+// CreateProvisioningRKE1ClusterWithClusterTemplate provisions an rke1 cluster by using the rke1 template and revision ID and other values from the template.
+func CreateProvisioningRKE1ClusterWithClusterTemplate(client *rancher.Client, provider RKE1Provider, clusterTempClusterConfig *clustertemplates.ClusterTemplateConfig, clusterConfig *clusters.ClusterConfig, nodeTemplate *nodetemplates.NodeTemplate) (*management.Cluster, error) {
+	clusterName := namegen.AppendRandomString(provider.Name.String())
+	cluster := clustertemplates.NewRKE1ClusterTemplateClusterConfig(clusterName, client, clusterTempClusterConfig)
+	clusterResp, err := shepherdclusters.CreateRKE1Cluster(client, cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	if client.Flags.GetValue(environmentflag.UpdateClusterName) {
+		pipeline.UpdateConfigClusterName(clusterName)
+	}
+
+	var nodeRoles []nodepools.NodeRoles
+	for _, nodes := range clusterConfig.NodePools {
+		nodeRoles = append(nodeRoles, nodes.NodeRoles)
+	}
+	_, err = nodepools.NodePoolSetup(client, nodeRoles, clusterResp.ID, nodeTemplate.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	createdCluster, err := client.Management.Cluster.ByID(clusterResp.ID)
+	return createdCluster, err
 }
