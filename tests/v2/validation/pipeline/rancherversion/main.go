@@ -194,6 +194,16 @@ func extractRke2K3sVersions(urlb, matchFilter string, primeRelease, primeRelease
 	latestVersions, err := getRke2K3sVersionMap(urlb, matchFilter, fileName, primeRelease)
 	var k8sVersionUpgrade []*version.Version
 
+	for i, ver := range latestVersions {
+		modifiedVersionStr := strings.Replace(ver.String(), "-", "+", 1)
+		newVersion, err := version.NewVersion("v" + modifiedVersionStr)
+		if err != nil {
+			fmt.Printf("Error parsing version: %v\n", err)
+			continue
+		}
+		latestVersions[i] = newVersion
+	}
+
 	if rancherVersionToUpgrade != "" {
 		re := regexp.MustCompile(`v[0-9]+\.[0-9]+\.[0-9]+`)
 		urlb = re.ReplaceAllString(urlb, rancherVersionToUpgrade)
@@ -201,7 +211,12 @@ func extractRke2K3sVersions(urlb, matchFilter string, primeRelease, primeRelease
 		if err != nil {
 			return nil, err
 		}
-		k8sVersions = append(k8sVersions, latestVersions[len(latestVersions)-1].Original(), k8sVersionUpgrade[len(k8sVersionUpgrade)-1].Original())
+		k8sVersions = append(k8sVersions, latestVersions[len(latestVersions)-1].Original())
+		if len(k8sVersionUpgrade) > 0 {
+			latestUpgradeVersion := k8sVersionUpgrade[len(k8sVersionUpgrade)-1].Original()
+			latestUpgradeVersion = strings.Replace("v"+latestUpgradeVersion, "-", "+", 1)
+			k8sVersions = append(k8sVersions, latestVersions[len(latestVersions)-1].Original(), latestUpgradeVersion)
+		}
 	} else {
 		k8sVersions = append(k8sVersions, latestVersions[len(latestVersions)-2].Original(), latestVersions[len(latestVersions)-1].Original())
 	}
@@ -254,6 +269,7 @@ func extractRkeVersions(urlb string, primeRelease, primeReleaseToUpgrade bool) (
 	if err != nil {
 		return nil, err
 	}
+
 	var k8sVersionToUpgrade []string
 	if rancherVersionToUpgrade != "" {
 		re := regexp.MustCompile(`v[0-9]+\.[0-9]+\.[0-9]+`)

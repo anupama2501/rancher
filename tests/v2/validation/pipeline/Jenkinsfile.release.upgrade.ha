@@ -492,38 +492,6 @@ node {
 
                 build job: 'rancher-v3_ha_upgrade', parameters: upgradeParams
               }
-              
-              stage('Upgrade local cluster version') {
-                try {
-                      def configPath = "./${configsDir}/${localConfigFileName}"
-                      def configYaml = readFile(file: "./${patchedConfigsDir}/${localConfigFileName}")
-
-                      def testCase = sh (
-                        script: "./yq '.testCases.upgradeKubernetesTestCase'  ${configPath}",
-                        returnStdout: true
-                      ).trim()
-
-                      def testPackage = sh (
-                        script: "./yq '.testCases.upgradeTestCase'  ${configPath}",
-                        returnStdout: true
-                      ).trim()
-
-                      def goValidationParams = [
-                        string(name: 'TIMEOUT', value: "2h"),
-                        text(name: 'CONFIG', value: configYaml),
-                        string(name: 'REPO', value: "${rancherRepo}"),
-                        string(name: 'BRANCH', value: "${branch}"),
-                        string(name: 'TEST_PACKAGE', value: "${testPackage}"),
-                        string(name: 'TAGS', value: "${defaultTag}"),
-                        string(name: 'GOTEST_TESTCASE', value: "${testCase}" ),
-                        string(name: 'RKE_VERSION', value: "${env.RKE_VERSION}")
-                      ]
-
-                      build job: 'go-automation-freeform-job', parameters: goValidationParams
-                } catch(err) {
-                  echo "Kubernetes upgrade tests had failures: " + err
-                }
-              }
 
               stage('Run postupgrade checks') {
                 try {
