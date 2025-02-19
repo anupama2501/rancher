@@ -234,7 +234,7 @@ func getRkeVersionMap(urlb, file string, primeRelease bool) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(k8sVersionData) <= 0 {
+		if len(k8sVersionData) == 0 {
 			return nil, fmt.Errorf("Empty list")
 		}
 

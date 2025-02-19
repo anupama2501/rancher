@@ -129,7 +129,8 @@ node {
                   
                   sh "docker volume create --name ${validationVolume}"
 
-                  sh "docker run -v ${validationVolume}:/root  --name ${setupContainer} -t " +
+                  sh "docker run -v ${validationVolume}:/root  --name ${setupContainer} -t -e RANCHER_VERSION=\$RANCHER_VERSION " +
+                  " -e RANCHER_VERSION_TO_UPGRADE=\$RANCHER_VERSION_TO_UPGRADE " +
                   "${imageName} sh -c \"${workPath}pipeline/scripts/rancher_k8s_version.sh\""
 
                   sh "docker cp ${setupContainer}:/root/go/src/github.com/rancher/rancher/testrancherk8s.yaml ./"
@@ -174,16 +175,28 @@ node {
                   println "Rancher RKE version to upgrade ${rancherRKEVersionToUpgrade}"
                   
                   def rancherVersion = sh(
-                      script: "grep 'rancherVersion' ./${testRancherVersions} | awk '{print \$2}'",
+                      script: "grep 'rancherVersion:' ./${testRancherVersions} | awk '{print \$2}'",
                       returnStdout: true
                     ).trim()
                   println "Rancher rancher version ${rancherVersion}"
                   
                   def rancherImageTag = sh(
-                      script: "grep 'rancherImageTag' ./${testRancherVersions} | awk '{print \$2}'",
+                      script: "grep 'rancherImageTag:' ./${testRancherVersions} | awk '{print \$2}'",
                       returnStdout: true
                     ).trim()
                   println "Rancher rancher image tag version ${rancherImageTag}"
+
+                  def rancherVersionToUpgrade = sh(
+                      script: "grep 'rancherVersionToUpgrade:' ./${testRancherVersions} | awk '{print \$2}'",
+                      returnStdout: true
+                    ).trim()
+                  println "Rancher rancher version ${rancherVersionToUpgrade}"
+                  
+                  def rancherImageTagToUpgrade = sh(
+                      script: "grep 'rancherImageTagToUpgrade:' ./${testRancherVersions} | awk '{print \$2}'",
+                      returnStdout: true
+                    ).trim()
+                  println "Rancher rancher image tag to upgrade version ${rancherImageTagToUpgrade}"
 
                 config = config.replace('${RANCHER_RKE2_VERSION}', rancherRKE2Version)
                 config = config.replace('${RANCHER_RKE2_VERSION_TO_UPGRADE}', rancherRKE2VersionToUpgrade)
@@ -193,6 +206,8 @@ node {
                 config = config.replace('${RANCHER_RKE_VERSION_TO_UPGRADE}', rancherRKEVersionToUpgrade)
                 config = config.replace('${RANCHER_VERSION}', rancherVersion)
                 config = config.replace('${RANCHER_IMAGE_TAG}', rancherImageTag)
+                config = config.replace('${RANCHER_VERSION_TO_UPGRADE}', rancherVersionToUpgrade)
+                config = config.replace('${RANCHER_IMAGE_TAG_TO_UPGRADE}', rancherImageTagToUpgrade)
                 }catch (err){
                     sh "docker stop ${setupContainer}"
                     sh "docker rm -v ${setupContainer}"
